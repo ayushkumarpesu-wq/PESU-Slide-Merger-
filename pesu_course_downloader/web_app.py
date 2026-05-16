@@ -316,7 +316,14 @@ def fetch_resource_response(session, pesu_id: str, class_id: str, resource_id: s
         "id": resource_id,
         "unitid": class_id,
     }
-    return session.get(f"{BASE_URL}/s/studentProfilePESUAdmin", params=params, timeout=20)
+    resp = session.get(f"{BASE_URL}/s/studentProfilePESUAdmin", params=params, timeout=20, allow_redirects=True)
+    # Auto-recover from expired serverless sessions.
+    if is_auth_page(resp.text, resp.url):
+        ok, _ = login_with_env_session()
+        if ok:
+            session = get_session()
+            resp = session.get(f"{BASE_URL}/s/studentProfilePESUAdmin", params=params, timeout=20, allow_redirects=True)
+    return resp
 
 def extract_resource_links_from_html(html: str):
     """Extract file download links from PESU resource HTML page."""
@@ -785,8 +792,23 @@ def api_proxy_resource():
             url,
             headers={"Referer": f"{BASE_URL}/s/studentProfilePESU"},
             stream=True,
-            timeout=30
+            timeout=30,
+            allow_redirects=True
         )
+        if is_auth_page(upstream.text if hasattr(upstream, "text") else "", upstream.url):
+            ok, msg = login_with_env_session()
+            if not ok:
+                return jsonify({'success': False, 'error': f'Session expired and re-login failed: {msg}'}), 401
+            session = get_session()
+            upstream = session.get(
+                url,
+                headers={"Referer": f"{BASE_URL}/s/studentProfilePESU"},
+                stream=True,
+                timeout=30,
+                allow_redirects=True
+            )
+        if upstream.status_code >= 400:
+            return jsonify({'success': False, 'error': f'Upstream fetch failed: HTTP {upstream.status_code}'}), 502
         content_type = upstream.headers.get("Content-Type", "application/octet-stream")
 
         def generate():
@@ -800,7 +822,7 @@ def api_proxy_resource():
         }
         return Response(stream_with_context(generate()), headers=headers)
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        return jsonify({'success': False, 'error': f'Proxy error: {e}'}), 500
 
 @app.route('/api/resources/direct', methods=['GET'])
 def api_direct_resource():
