@@ -8,6 +8,8 @@ import threading
 import re
 import subprocess
 import sys
+import io
+import zipfile
 from urllib.parse import quote, unquote
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect
@@ -69,6 +71,31 @@ def reset_session():
     _SESSION = requests.Session()
     return _SESSION
 
+def login_with_env_session():
+    """Authenticate session using env credentials."""
+    srn = os.getenv('PESU_SRN', '') or os.getenv('PESU_USERNAME', '')
+    password = os.getenv('PESU_PASSWORD', '')
+    if not srn or not password:
+        return False, 'PESU credentials not configured. Set PESU_SRN/PESU_USERNAME and PESU_PASSWORD.'
+
+    session = reset_session()
+    r0 = session.get(f"{BASE_URL}/", timeout=15)
+    soup = BeautifulSoup(r0.text, "html.parser")
+    csrf_input = soup.find("input", {"name": "_csrf"})
+    csrf_token = csrf_input.get("value") if csrf_input else None
+    if not csrf_token:
+        return False, 'Could not get CSRF token from PESU Academy'
+
+    login_data = {"j_username": srn, "j_password": password, "_csrf": csrf_token}
+    response = session.post(f"{BASE_URL}/j_spring_security_check", data=login_data, timeout=15)
+    if "authfailed" in response.url:
+        return False, 'Login failed. Check your SRN and password.'
+
+    verify = session.get(f"{BASE_URL}/s/studentProfilePESU", timeout=15, allow_redirects=True)
+    if is_auth_page(verify.text, verify.url):
+        return False, 'Login session not established. Please try again.'
+    return True, srn
+
 def load_courses_data():
     """Load courses from courses.json — simple and direct."""
     global _COURSES_CACHE
@@ -98,6 +125,10 @@ def load_courses_data():
     # Vercel fallback: courses.json may be absent due repo/.gitignore layout.
     # If local file has no data, fetch live course list from authenticated PESU session.
     if not courses:
+        ok, _ = login_with_env_session()
+        if not ok:
+            _COURSES_CACHE = []
+            return _COURSES_CACHE
         courses = fetch_courses_from_pesu()
 
     _COURSES_CACHE = courses
@@ -305,48 +336,10 @@ def index():
 @app.route('/api/login', methods=['POST'])
 def api_login():
     try:
-        srn = os.getenv('PESU_SRN', '') or os.getenv('PESU_USERNAME', '')
-        password = os.getenv('PESU_PASSWORD', '')
-
-        if not srn or not password:
-            return jsonify({
-                'success': False,
-                'error': 'PESU credentials not configured. Set PESU_SRN and PESU_PASSWORD in .env'
-            }), 400
-
-        session = reset_session()  # Fresh session on each login
-
-        # Get CSRF token
-        r0 = session.get(f"{BASE_URL}/", timeout=15)
-        soup = BeautifulSoup(r0.text, "html.parser")
-        csrf_input = soup.find("input", {"name": "_csrf"})
-        csrf_token = csrf_input.get("value") if csrf_input else None
-
-        if not csrf_token:
-            return jsonify({'success': False, 'error': 'Could not get CSRF token from PESU Academy'}), 500
-
-        # Login
-        login_data = {
-            "j_username": srn,
-            "j_password": password,
-            "_csrf": csrf_token,
-        }
-        print(f"[DEBUG] Posting login for SRN={srn}")
-        response = session.post(f"{BASE_URL}/j_spring_security_check", data=login_data, timeout=15)
-        print(f"[DEBUG] Login POST response URL: {response.url}")
-
-        if "authfailed" in response.url:
-            return jsonify({'success': False, 'error': 'Login failed. Check your SRN and password.'}), 401
-
-        # Verify that session is truly authenticated
-        verify = session.get(f"{BASE_URL}/s/studentProfilePESU", timeout=15, allow_redirects=True)
-        print(f"[DEBUG] Verify URL: {verify.url}, status: {verify.status_code}")
-        if is_auth_page(verify.text, verify.url):
-            print(f"[DEBUG] Verification FAILED — detected auth page at {verify.url}")
-            return jsonify({'success': False, 'error': 'Login session not established. Please try again.'}), 401
-
-        print(f"[DEBUG] Login verified successfully for {srn}")
-        return jsonify({'success': True, 'message': 'Login successful', 'user': srn})
+        ok, result = login_with_env_session()
+        if not ok:
+            return jsonify({'success': False, 'error': result}), 401
+        return jsonify({'success': True, 'message': 'Login successful', 'user': result})
 
     except requests.exceptions.ConnectionError:
         return jsonify({'success': False, 'error': 'Cannot connect to PESU Academy. Check your internet connection.'}), 503
@@ -485,10 +478,98 @@ def api_get_course_details(course_id):
 def api_download_status():
     return jsonify(DOWNLOAD_PROGRESS)
 
+def sanitize_filename(name: str, max_len: int = 60):
+    return "".join(c if c.isalnum() or c in (' ', '-', '_', '.') else '_' for c in (name or '')).strip()[:max_len] or "file"
+
+@app.route('/api/download/zip', methods=['POST'])
+def api_download_zip():
+    """Vercel-friendly direct zip response."""
+    try:
+        data = request.json or {}
+        course_id = data.get('course_code')
+        selected_classes = parse_selected_classes(data.get('classes', []))
+        selected_resource_ids = parse_selected_resource_ids(data.get('resources', []))
+
+        if not course_id:
+            return jsonify({'success': False, 'error': 'Course code is required'}), 400
+        if not selected_classes:
+            return jsonify({'success': False, 'error': 'No classes selected'}), 400
+        if not selected_resource_ids:
+            return jsonify({'success': False, 'error': 'No valid resource types selected'}), 400
+
+        all_courses = load_courses_data()
+        course = next((c for c in all_courses if
+                       safe_str(c.get('id')) == course_id or
+                       safe_str(c.get('subjectCode')) == course_id), None)
+        if not course:
+            return jsonify({'success': False, 'error': f'Course {course_id} not found'}), 404
+
+        pesu_id = safe_str(course.get('id'))
+        course_name = safe_str(course.get('subjectName') or course.get('subjectCode'))
+        session = get_session()
+
+        buf = io.BytesIO()
+        file_count = 0
+        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for cls in selected_classes:
+                unit_name = sanitize_filename(cls.get('unit_name', ''), 50)
+                class_name = sanitize_filename(cls.get('class_name', ''), 60)
+                for resource_id in selected_resource_ids:
+                    resource_name = sanitize_filename(RESOURCE_TYPES.get(resource_id, resource_id), 30)
+                    try:
+                        resp = fetch_resource_response(session, pesu_id, cls["class_id"], resource_id)
+                        content_type = (resp.headers.get("Content-Type", "") or "").lower()
+                        ext = ".pdf"
+                        if "presentation" in content_type:
+                            ext = ".pptx"
+                        elif "word" in content_type:
+                            ext = ".docx"
+
+                        if "application/" in content_type and "html" not in content_type:
+                            zpath = f"{unit_name}/{resource_name}/{class_name}{ext}"
+                            zf.writestr(zpath, resp.content)
+                            file_count += 1
+                        else:
+                            links = extract_resource_links_from_html(resp.text)
+                            idx = 1
+                            for link_url in links:
+                                try:
+                                    lr = session.get(link_url, headers={"Referer": f"{BASE_URL}/s/studentProfilePESU"}, timeout=20)
+                                    if lr.status_code == 200 and lr.content:
+                                        zpath = f"{unit_name}/{resource_name}/{class_name}_{idx}{ext}"
+                                        zf.writestr(zpath, lr.content)
+                                        file_count += 1
+                                        idx += 1
+                                except Exception:
+                                    pass
+                    except Exception as e:
+                        print(f"[WARN] zip fetch failed for {class_name}: {e}")
+
+        if file_count == 0:
+            return jsonify({'success': False, 'error': 'No files found for selected filters'}), 404
+
+        buf.seek(0)
+        out_name = sanitize_filename(course_name, 40)
+        return Response(
+            buf.getvalue(),
+            headers={
+                "Content-Type": "application/zip",
+                "Content-Disposition": f'attachment; filename=\"{out_name}_resources.zip\"'
+            }
+        )
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 @app.route('/api/download/start', methods=['POST'])
 def api_start_download():
     try:
+        if os.getenv('VERCEL'):
+            return jsonify({
+                'success': False,
+                'error': 'Use direct ZIP download mode on Vercel.'
+            }), 400
+
         data = request.json or {}
         course_id = data.get('course_code')  # frontend sends course_code
         selected_classes_raw = data.get('classes', [])
@@ -859,3 +940,4 @@ def perform_download(course_id, selected_classes, selected_resource_ids):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+

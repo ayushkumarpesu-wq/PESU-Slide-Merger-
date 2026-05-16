@@ -33,6 +33,7 @@ function initializeApp() {
     console.log('ðŸš€ App initializing...');
     setupEventListeners();
     updateUI();
+    attemptAutoLogin();
     console.log('âœ… App initialized');
 }
 
@@ -160,6 +161,14 @@ async function performLogin() {
         btn.disabled = false;
         btn.innerHTML = originalText;
     }
+}
+
+async function attemptAutoLogin() {
+    const statusEl = document.getElementById('login-status');
+    if (statusEl) {
+        showStatusMessage('login-status', 'Trying auto-login...', 'info');
+    }
+    await performLogin();
 }
 
 /* ============================================
@@ -531,6 +540,10 @@ function updateSelectionSummary() {
    ============================================ */
 
 async function startDownload() {
+    if (window.location.hostname.includes('vercel.app')) {
+        return startVercelZipDownload();
+    }
+
     STATE.isDownloading = true;
     document.getElementById('start-download-btn').style.display = 'none';
     document.getElementById('cancel-download-btn').style.display = 'block';
@@ -562,6 +575,40 @@ async function startDownload() {
         STATE.isDownloading = false;
         document.getElementById('cancel-download-btn').style.display = 'none';
         document.getElementById('start-download-btn').style.display = 'block';
+        return false;
+    }
+}
+
+async function startVercelZipDownload() {
+    try {
+        const response = await fetch('/api/download/zip', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                course_code: STATE.selectedCourse.id || STATE.selectedCourse.code,
+                classes: STATE.selectedUnits,
+                resources: STATE.selectedResources
+            })
+        });
+
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.error || 'ZIP download failed');
+        }
+
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'pesu_resources.zip';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+        showDownloadMessage('ZIP download started successfully.', 'success');
+        return true;
+    } catch (error) {
+        showDownloadMessage(`Download failed: ${error.message}`, 'error');
         return false;
     }
 }
