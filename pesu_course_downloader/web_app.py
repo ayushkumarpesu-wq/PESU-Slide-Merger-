@@ -123,13 +123,26 @@ def load_courses_data():
             print(f"[ERROR] courses.json: {e}")
 
     # Vercel fallback: courses.json may be absent due repo/.gitignore layout.
-    # If local file has no data, fetch live course list from authenticated PESU session.
+    # Try live PESU first, then bundled seed catalog.
     if not courses:
         ok, _ = login_with_env_session()
-        if not ok:
-            _COURSES_CACHE = []
-            return _COURSES_CACHE
-        courses = fetch_courses_from_pesu()
+        if ok:
+            courses = fetch_courses_from_pesu()
+
+    # Last fallback for deployment reliability: bundled seed catalog.
+    if not courses:
+        seed_file = os.path.join(os.path.dirname(__file__), 'courses_seed.json')
+        if os.path.exists(seed_file):
+            try:
+                with open(seed_file, 'r', encoding='utf-8') as f:
+                    seed_data = json.load(f)
+                if isinstance(seed_data, dict) and isinstance(seed_data.get('courses'), list):
+                    courses = [c for c in seed_data['courses'] if isinstance(c, dict)]
+                elif isinstance(seed_data, list):
+                    courses = [c for c in seed_data if isinstance(c, dict)]
+                print(f"[OK] Loaded {len(courses)} courses from courses_seed.json")
+            except Exception as e:
+                print(f"[WARN] courses_seed.json load failed: {e}")
 
     _COURSES_CACHE = courses
     return courses
