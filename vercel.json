@@ -2,14 +2,14 @@
   "version": 2,
   "builds": [
     {
-      "src": "web_app.py",
+      "src": "pesu_course_downloader/web_app.py",
       "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "web_app.py"
+      "dest": "pesu_course_downloader/web_app.py"
     }
   ]
 }
