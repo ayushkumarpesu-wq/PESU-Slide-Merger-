@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Run PESU Course Downloader",
+			"type": "shell",
+			"command": "python",
+			"args": [
+				"web_app.py"
+			],
+			"isBackground": true,
+			"group": "build"
+		}
+	]
+}

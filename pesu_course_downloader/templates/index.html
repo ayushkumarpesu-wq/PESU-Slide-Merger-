@@ -1,0 +1,246 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PESU Academy Course Downloader</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo">ðŸŽ“</div>
+                    <div>
+                        <h1>PESU Academy</h1>
+                        <p>Course Downloader</p>
+                    </div>
+                </div>
+                <div class="header-status" id="header-status">Ready</div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Step Indicator -->
+            <div class="step-indicator">
+                <div class="step-item active" id="step-1" onclick="goToStep(1)">
+                    <div class="step-number">1</div>
+                    <div class="step-label">Login</div>
+                </div>
+                <div class="step-connector"></div>
+                <div class="step-item" id="step-2" onclick="goToStep(2)">
+                    <div class="step-number">2</div>
+                    <div class="step-label">Select Course</div>
+                </div>
+                <div class="step-connector"></div>
+                <div class="step-item" id="step-3" onclick="goToStep(3)">
+                    <div class="step-number">3</div>
+                    <div class="step-label">Choose Resources</div>
+                </div>
+                <div class="step-connector"></div>
+                <div class="step-item" id="step-4" onclick="goToStep(4)">
+                    <div class="step-number">4</div>
+                    <div class="step-label">Download</div>
+                </div>
+            </div>
+
+            <!-- Panels Container -->
+            <div class="panels-container">
+                
+                <!-- STEP 1: LOGIN PANEL -->
+                <div class="panel active" id="panel-1">
+                    <div class="panel-content">
+                        <h2>Login to PESU Academy</h2>
+                        <p class="panel-subtitle">Authenticate with your PESU Academy account</p>
+                        
+                        <div class="login-section">
+                            <div class="credentials-info">
+                                <div class="info-box">
+                                    <span class="info-icon">â„¹ï¸</span>
+                                    <p>Credentials are loaded from <code>.env</code> file automatically</p>
+                                </div>
+                            </div>
+
+                            <button class="btn btn-primary btn-large" id="login-btn" onclick="performLogin()">
+                                <span class="btn-icon">ðŸ”</span>
+                                Login to Account
+                            </button>
+
+                            <div class="status-message" id="login-status"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 2: COURSE SELECTION PANEL -->
+                <div class="panel" id="panel-2">
+                    <div class="panel-content">
+                        <h2>Select a Course</h2>
+                        <p class="panel-subtitle">Browse and choose your desired course</p>
+
+                        <div class="course-filters">
+                            <div class="filter-group">
+                                <input 
+                                    type="text" 
+                                    id="course-search" 
+                                    class="filter-input" 
+                                    placeholder="Search by course code or name..."
+                                    onkeyup="debounceSearch()"
+                                >
+                            </div>
+                            <div class="filter-group">
+                                <select id="year-filter" class="filter-select" onchange="loadCourses()">
+                                    <option value="">All Years</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="courses-list" id="courses-list">
+                            <div class="loading-spinner">
+                                <div class="spinner"></div>
+                                <p>Loading courses...</p>
+                            </div>
+                        </div>
+
+                        <div class="pagination" id="pagination"></div>
+
+                        <div class="selected-course-info" id="selected-course-info" style="display: none;">
+                            <div class="info-badge">
+                                <span class="badge-label">Selected:</span>
+                                <span class="badge-value" id="selected-course-name"></span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 3: RESOURCE SELECTION PANEL -->
+                <div class="panel" id="panel-3">
+                    <div class="panel-content">
+                        <h2>Choose Resources</h2>
+                        <p class="panel-subtitle">Select units and resource types to download</p>
+
+                        <div class="resource-selection">
+                            <div class="selection-group">
+                                <h3>ðŸ“š Units</h3>
+                                <div class="units-list" id="units-list">
+                                    <div class="loading-spinner">
+                                        <div class="spinner"></div>
+                                        <p>Loading units...</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="selection-group">
+                                <h3>ðŸ“„ Resource Types</h3>
+                                <div class="resources-list">
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="resource" value="Slides" checked>
+                                        <span class="checkbox-label">ðŸ“Š Slides</span>
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="resource" value="Notes">
+                                        <span class="checkbox-label">ðŸ“ Notes</span>
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="resource" value="Assignments">
+                                        <span class="checkbox-label">âœï¸ Assignments</span>
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="resource" value="QA">
+                                        <span class="checkbox-label">ðŸ“‹ QA</span>
+                                    </label>
+                                    <label class="checkbox-item">
+                                        <input type="checkbox" name="resource" value="QB">
+                                        <span class="checkbox-label">ðŸ“š Question Bank</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="selection-summary" id="selection-summary" style="display: none;">
+                            <p><strong>Units Selected:</strong> <span id="units-count">0</span></p>
+                            <p><strong>Resources Selected:</strong> <span id="resources-count">0</span></p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STEP 4: DOWNLOAD PANEL -->
+                <div class="panel" id="panel-4">
+                    <div class="panel-content">
+                        <h2>Download Progress</h2>
+                        <p class="panel-subtitle">Monitor your course material download</p>
+
+                        <div class="download-section">
+                            <div class="progress-info">
+                                <div class="info-row">
+                                    <span class="label">Status:</span>
+                                    <span class="value" id="download-status">Ready to download</span>
+                                </div>
+                                <div class="info-row">
+                                    <span class="label">Files:</span>
+                                    <span class="value"><span id="downloaded-count">0</span>/<span id="total-count">0</span></span>
+                                </div>
+                                <div class="info-row" id="elapsed-info" style="display: none;">
+                                    <span class="label">Elapsed:</span>
+                                    <span class="value" id="elapsed-time">00:00</span>
+                                </div>
+                            </div>
+
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                                <div class="progress-text" id="progress-text">0%</div>
+                            </div>
+
+                            <div class="current-file-info" id="current-file-info" style="display: none;">
+                                <p id="current-file-name"></p>
+                            </div>
+
+                            <div class="button-group">
+                                <button class="btn btn-primary" id="start-download-btn" onclick="startDownload()">
+                                    <span class="btn-icon">â¬‡ï¸</span>
+                                    Start Download
+                                </button>
+                                <button class="btn btn-secondary" id="view-resources-btn" onclick="viewResources()">
+                                    <span class="btn-icon">View</span>
+                                    View Selected Resources
+                                </button>
+                                <button class="btn btn-secondary" id="cancel-download-btn" onclick="cancelDownload()" style="display: none;">
+                                    <span class="btn-icon">âŒ</span>
+                                    Cancel Download
+                                </button>
+                            </div>
+
+                            <div class="status-message" id="download-message"></div>
+                            <div class="status-message" id="view-message"></div>
+                            <div id="view-results" style="margin-top: 12px;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Navigation Buttons -->
+            <div class="navigation">
+                <button class="btn btn-secondary" id="prev-btn" onclick="prevStep()" style="display: none;">
+                    <span class="btn-icon">â†</span>
+                    Previous
+                </button>
+                <button class="btn btn-primary" id="next-btn" onclick="nextStep()" disabled>
+                    <span class="btn-icon">â†’</span>
+                    Next
+                </button>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>PESU Academy Course Downloader v1.0 | ðŸš€ Built with Flask & JavaScript</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
+
+

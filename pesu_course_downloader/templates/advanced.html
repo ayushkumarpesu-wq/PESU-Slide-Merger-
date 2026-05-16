@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PESU Course Downloader - Advanced Edition</title>
+    <link rel="stylesheet" href="static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <div class="logo-circle">
+                        <span class="logo-icon">⚡</span>
+                    </div>
+                    <div class="logo-text">
+                        <h1>PESU Downloader</h1>
+                        <p>Advanced Auto Mode</p>
+                    </div>
+                </div>
+                <div class="header-stats">
+                    <div class="stat-item">
+                        <span class="stat-label">Loaded</span>
+                        <span class="stat-value" id="coursesCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Selected</span>
+                        <span class="stat-value" id="selectedCount">0</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-label">Status</span>
+                        <span class="stat-value status" id="statusBadge">Ready</span>
+                    </div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Auto Login Section -->
+            <section id="loginSection" class="card-section glass-card">
+                <div class="section-header">
+                    <h2>1. Auto-Login</h2>
+                    <p class="section-subtitle">Automatic authentication from environment</p>
+                </div>
+                <div class="button-group">
+                    <button id="loginBtn" class="primary-btn large-btn" onclick="performLogin()">
+                        <span class="btn-icon">🔐</span>
+                        <span>Login & Load Courses</span>
+                    </button>
+                    <button class="secondary-btn" onclick="toggleLoginForm()" title="Manual Entry">⚙️</button>
+                </div>
+                <div id="loginFormDiv" class="hidden form-section">
+                    <input type="text" id="srn" placeholder="SRN" class="input-field">
+                    <input type="password" id="password" placeholder="Password" class="input-field">
+                    <button onclick="performLogin()" class="primary-btn">Login</button>
+                </div>
+                <div id="loginStatus" class="status-box"></div>
+            </section>
+
+            <!-- Course Selection Section -->
+            <section id="courseSection" class="card-section glass-card hidden">
+                <div class="section-header">
+                    <h2>2. Select Courses</h2>
+                    <p class="section-subtitle">Multi-select mode - Choose one or many</p>
+                </div>
+                
+                <!-- Advanced Filters -->
+                <div class="filters-bar">
+                    <input type="text" id="courseSearch" placeholder="Search by code or name..." 
+                           class="filter-input" onkeyup="filterCourses()">
+                    <select id="yearFilter" class="filter-select" onchange="filterCourses()">
+                        <option value="">All Years</option>
+                    </select>
+                    <div class="filter-buttons">
+                        <button onclick="selectAllVisible()" class="filter-btn">Select All</button>
+                        <button onclick="clearAllSelection()" class="filter-btn">Clear All</button>
+                    </div>
+                </div>
+
+                <!-- Courses Grid -->
+                <div id="coursesGrid" class="courses-grid">
+                    <!-- Auto-populated -->
+                </div>
+
+                <!-- Batch Actions -->
+                <div class="batch-actions" id="batchActions" style="display:none;">
+                    <p id="selectedInfo">0 courses selected</p>
+                    <button onclick="downloadSelectedBatch()" class="primary-btn large-btn">
+                        <span class="btn-icon">📥</span>
+                        <span>Download All Selected</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Resource Selection Section -->
+            <section id="resourceSection" class="card-section glass-card hidden">
+                <div class="section-header">
+                    <h2>3. Choose Resources</h2>
+                    <p class="section-subtitle">What to download for each course</p>
+                </div>
+                
+                <div class="resources-grid" id="resourcesGrid">
+                    <!-- Auto-populated from course details -->
+                </div>
+
+                <div class="button-group">
+                    <button onclick="selectAllResources()" class="secondary-btn">Select All Resources</button>
+                    <button onclick="proceedToDownload()" class="primary-btn large-btn">
+                        <span class="btn-icon">➜</span>
+                        <span>Proceed to Download</span>
+                    </button>
+                </div>
+            </section>
+
+            <!-- Download Progress Section -->
+            <section id="downloadSection" class="card-section glass-card hidden">
+                <div class="section-header">
+                    <h2>4. Download Progress</h2>
+                    <p class="section-subtitle">Real-time transfer and organization</p>
+                </div>
+
+                <div class="progress-container">
+                    <!-- Overall Progress -->
+                    <div class="progress-item">
+                        <div class="progress-header">
+                            <span class="progress-label">Overall Progress</span>
+                            <span class="progress-percent" id="overallPercent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="overallFill" style="width:0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Current Course Progress -->
+                    <div class="progress-item" style="margin-top: 20px;">
+                        <div class="progress-header">
+                            <span class="progress-label" id="currentCourseName">Preparing...</span>
+                            <span class="progress-percent" id="coursePercent">0%</span>
+                        </div>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="courseFill" style="width:0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Current File Info -->
+                    <div class="download-info" id="downloadInfo">
+                        <p id="currentFile">Starting download...</p>
+                        <p id="downloadStats">File 1 of 10</p>
+                        <p id="downloadSpeed">Speed: --</p>
+                    </div>
+                </div>
+
+                <!-- Control Buttons -->
+                <div class="button-group download-controls">
+                    <button id="pauseBtn" onclick="pauseDownload()" class="secondary-btn" style="display:none;">⏸ Pause</button>
+                    <button id="resumeBtn" onclick="resumeDownload()" class="secondary-btn" style="display:none;">▶ Resume</button>
+                    <button id="cancelBtn" onclick="cancelDownload()" class="danger-btn">✕ Cancel</button>
+                    <button id="completeBtn" onclick="goHome()" class="primary-btn" style="display:none;">✓ Complete</button>
+                </div>
+
+                <!-- Download Details Log -->
+                <div class="download-log" id="downloadLog">
+                    <p class="log-entry" id="logStart">Download started...</p>
+                </div>
+            </section>
+
+            <!-- Settings & Advanced Options -->
+            <section class="card-section glass-card">
+                <div class="section-header">
+                    <h2>⚙️ Settings & Options</h2>
+                    <p class="section-subtitle">Customize download behavior</p>
+                </div>
+                
+                <div class="settings-grid">
+                    <label class="setting-item">
+                        <input type="checkbox" id="autoMergePDF" checked> Auto-merge PDFs
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="autoOrganize" checked> Auto-organize files
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="keepOriginals" checked> Keep original files
+                    </label>
+                    <label class="setting-item">
+                        <input type="checkbox" id="autoOpenFolder"> Open folder when done
+                    </label>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>PESU Course Downloader • Advanced Auto Edition • v2.0</p>
+            <p id="connectionStatus" class="connection-status">Connecting...</p>
+        </footer>
+    </div>
+
+    <script src="static/app-advanced.js"></script>
+</body>
+</html>
