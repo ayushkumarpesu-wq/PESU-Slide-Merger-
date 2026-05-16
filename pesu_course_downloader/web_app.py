@@ -43,6 +43,8 @@ DOWNLOAD_PROGRESS = {
 # Shared requests session (persists login cookies)
 _SESSION = None
 _COURSES_CACHE = None
+_COURSE_DETAILS_CACHE = {}  # {course_id: {units, timestamp}}
+_CACHE_TTL = 300  # 5 minutes
 
 BASE_URL = "https://www.pesuacademy.com/Academy"
 
@@ -477,9 +479,24 @@ def api_get_courses():
 
 @app.route('/api/courses/<course_id>', methods=['GET'])
 def api_get_course_details(course_id):
-    """Get units for a course — fetched live from PESU Academy."""
+    """Get units for a course — fetched live from PESU Academy with caching."""
     print(f"[DEBUG] api_get_course_details called with course_id={course_id}")
     try:
+        # Check cache first
+        now = datetime.now().timestamp()
+        if course_id in _COURSE_DETAILS_CACHE:
+            cached = _COURSE_DETAILS_CACHE[course_id]
+            if now - cached.get('timestamp', 0) < _CACHE_TTL:
+                print(f"[DEBUG] Using cached course details for {course_id}")
+                return jsonify({
+                    'success': True,
+                    'course': cached['course'],
+                    'units': cached['units'],
+                    'unit_objects': cached['unit_objects'],
+                    'resource_types': list(RESOURCE_TYPES.values()),
+                    'resource_type_ids': RESOURCE_TYPES
+                })
+        
         # Find the course in our cache to get its details
         all_courses = load_courses_data()
         course = None
@@ -492,35 +509,61 @@ def api_get_course_details(course_id):
         if not course:
             return jsonify({'success': False, 'error': f'Course {course_id} not found'}), 404
 
-        # Use course id (numeric) for the PESU API call
-        pesu_id = safe_str(course.get('id'))
-        print(f"[DEBUG] Found course: {course}, trying to fetch units...")
-        
-        # Fetch units live from PESU Academy
-        try:
-            units = get_units_from_pesu(pesu_id)
-            print(f"[DEBUG] get_units_from_pesu returned: {units}")
-            
-            # Fetch classes for each unit
-            for unit in units:
-                unit['classes'] = get_classes_from_pesu(unit['id'])
-                
-        except RuntimeError:
-            # Retry once after re-login for serverless/session resets.
-            ok, msg = login_with_env_session()
-            if not ok:
-                return jsonify({'success': False, 'error': f'Login required: {msg}'}), 401
-            units = get_units_from_pesu(pesu_id)
-            for unit in units:
-                unit['classes'] = get_classes_from_pesu(unit['id'])
-        except Exception as e:
-            print(f"[WARN] Could not fetch units from PESU: {e}")
-            return jsonify({'success': False, 'error': 'Unable to fetch units from PESU Academy'}), 502
+        # Build candidate PESU IDs for this subject (seed/live catalogs can carry stale IDs).
+        base_id = safe_str(course.get('id'))
+        target_code = safe_str(course.get('subjectCode'))
+        target_name = safe_str(course.get('subjectName'))
+        candidate_ids = []
+        if base_id:
+            candidate_ids.append(base_id)
+        for c in all_courses:
+            cid = safe_str(c.get('id'))
+            if not cid or cid in candidate_ids:
+                continue
+            same_code = safe_str(c.get('subjectCode')) == target_code and target_code != ''
+            same_name = safe_str(c.get('subjectName')) == target_name and target_name != ''
+            if same_code or same_name:
+                candidate_ids.append(cid)
+
+        print(f"[DEBUG] Found course: {course}, trying candidate IDs: {candidate_ids}")
+        units = None
+        last_error = None
+        for idx, pesu_id in enumerate(candidate_ids):
+            try:
+                units = get_units_from_pesu(pesu_id)
+                for unit in units:
+                    unit['classes'] = get_classes_from_pesu(unit['id'])
+                # Keep the working ID for downstream operations.
+                course['id'] = pesu_id
+                break
+            except RuntimeError as e:
+                last_error = e
+                # Retry once with fresh login only on first failure path.
+                if idx == 0:
+                    ok, msg = login_with_env_session()
+                    if not ok:
+                        return jsonify({'success': False, 'error': f'Login required: {msg}'}), 401
+                continue
+            except Exception as e:
+                last_error = e
+                continue
+
+        if not units:
+            print(f"[WARN] Could not fetch units for candidates {candidate_ids}: {last_error}")
+            return jsonify({'success': False, 'error': 'Unable to fetch units from PESU Academy for this course. Try another matching course card.'}), 502
 
         # Return unit names as a simple list for the frontend
         unit_names = [u['name'] for u in units]
         
         print(f"[DEBUG] Returning {len(unit_names)} units: {unit_names}")
+
+        # Cache the result
+        _COURSE_DETAILS_CACHE[course_id] = {
+            'course': course,
+            'units': unit_names,
+            'unit_objects': units,
+            'timestamp': now
+        }
 
         return jsonify({
             'success': True,
