@@ -106,33 +106,6 @@ venv\Scripts\activate
 # macOS/Linux:
 source venv/bin/activate
 ```
-
-### Step 3: Install Dependencies
-```bash
-pip install -r pesu_course_downloader/requirements.txt
-```
-
-### Step 4: Handle Platform-Specific Dependencies
-
-#### For PyAudio on Windows (if microphone input needed):
-```bash
-# Option 1: Install pre-built wheel
-pip install pipwin
-pipwin install pyaudio
-
-# Option 2: Manual installation
-# Download wheel from: https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio
-pip install <wheel_file>.whl
-```
-
-#### For Windows Curses:
-```bash
-# Already in requirements.txt but ensure installation:
-pip install windows-curses
-```
-
----
-
 ## ⚙️ Configuration
 
 ### Step 1: Create `.env` File
@@ -154,15 +127,7 @@ CACHE_EXPIRY=3600
 PESU_SRN=PES2UG20CS001
 PESU_PASSWORD=your_secure_password
 API_TIMEOUT=30
-```
-
-### Step 2: Verify Installation
-```bash
-python -c "import flask, requests, bs4; print('✓ All core dependencies installed!')"
-```
-
----
-
+``
 ## 📖 Usage
 
 ### Option 1: Web Interface (Recommended)
