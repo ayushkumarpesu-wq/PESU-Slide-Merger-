@@ -160,12 +160,18 @@ def fetch_courses_from_pesu():
             return []
 
         payload = response.json() if "json" in content_type else None
-        if not isinstance(payload, list):
-            print("[WARN] Live courses response is not a list")
+        if isinstance(payload, list):
+            raw_list = payload
+        elif isinstance(payload, dict):
+            raw_list = payload.get('courses') or payload.get('data') or payload.get('subjects') or payload.get('result') or []
+        else:
+            raw_list = []
+        if not isinstance(raw_list, list):
+            print("[WARN] Live courses response has unsupported format")
             return []
 
         normalized = []
-        for item in payload:
+        for item in raw_list:
             if not isinstance(item, dict):
                 continue
             normalized.append({
@@ -403,14 +409,18 @@ def api_get_courses():
                         })
 
         if not all_courses:
-            # Emergency fallback: never block the UI with an empty catalog.
-            all_courses = [
-                {'id': '1', 'subjectCode': 'UE24CS101', 'subjectName': 'Programming Fundamentals'},
-                {'id': '2', 'subjectCode': 'UE24CS102', 'subjectName': 'Data Structures'},
-                {'id': '3', 'subjectCode': 'UE24CS103', 'subjectName': 'Database Systems'},
-                {'id': '4', 'subjectCode': 'UE24CS104', 'subjectName': 'Computer Networks'},
-                {'id': '5', 'subjectCode': 'UE24CS105', 'subjectName': 'Operating Systems'},
-            ]
+            # Emergency fallback: use real seeded catalog (real IDs), not dummy IDs.
+            seed_file = os.path.join(os.path.dirname(__file__), 'courses_seed.json')
+            if os.path.exists(seed_file):
+                try:
+                    with open(seed_file, 'r', encoding='utf-8') as f:
+                        seed_data = json.load(f)
+                    if isinstance(seed_data, dict) and isinstance(seed_data.get('courses'), list):
+                        all_courses = [c for c in seed_data['courses'] if isinstance(c, dict)]
+                    elif isinstance(seed_data, list):
+                        all_courses = [c for c in seed_data if isinstance(c, dict)]
+                except Exception:
+                    all_courses = []
 
         filtered = all_courses
 
@@ -488,8 +498,14 @@ def api_get_course_details(course_id):
             for unit in units:
                 unit['classes'] = get_classes_from_pesu(unit['id'])
                 
-        except RuntimeError as e:
-            return jsonify({'success': False, 'error': str(e)}), 401
+        except RuntimeError:
+            # Retry once after re-login for serverless/session resets.
+            ok, msg = login_with_env_session()
+            if not ok:
+                return jsonify({'success': False, 'error': f'Login required: {msg}'}), 401
+            units = get_units_from_pesu(pesu_id)
+            for unit in units:
+                unit['classes'] = get_classes_from_pesu(unit['id'])
         except Exception as e:
             print(f"[WARN] Could not fetch units from PESU: {e}")
             return jsonify({'success': False, 'error': 'Unable to fetch units from PESU Academy'}), 502
