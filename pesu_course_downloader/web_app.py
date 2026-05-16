@@ -360,11 +360,37 @@ def api_get_courses():
 
         all_courses = load_courses_data()
 
+        # Hard fallback for Vercel: if cache/local file is empty, fetch live now.
         if not all_courses:
-            return jsonify({
-                'success': True, 'courses': [], 'total_courses': 0,
-                'page': 1, 'total_pages': 0, 'available_years': []
-            })
+            ok, msg = login_with_env_session()
+            if not ok:
+                return jsonify({'success': False, 'error': f'Login required for courses: {msg}'}), 401
+
+            session = get_session()
+            r = session.get(f"{BASE_URL}/a/g/getSubjectsCode", timeout=20, allow_redirects=True)
+            if is_auth_page(r.text, r.url):
+                return jsonify({'success': False, 'error': 'Session became invalid while loading courses. Please retry login.'}), 401
+
+            payload = r.json() if 'json' in (r.headers.get('Content-Type', '') or '').lower() else None
+            if isinstance(payload, list):
+                raw_list = payload
+            elif isinstance(payload, dict):
+                raw_list = payload.get('courses') or payload.get('data') or payload.get('subjects') or payload.get('result') or []
+            else:
+                raw_list = []
+
+            all_courses = []
+            if isinstance(raw_list, list):
+                for item in raw_list:
+                    if isinstance(item, dict):
+                        all_courses.append({
+                            'id': safe_str(item.get('id')),
+                            'subjectCode': safe_str(item.get('subjectCode') or item.get('code')),
+                            'subjectName': safe_str(item.get('subjectName') or item.get('name')),
+                        })
+
+        if not all_courses:
+            return jsonify({'success': False, 'error': 'Courses API returned empty data. Check Vercel env vars and PESU account access.'}), 502
 
         filtered = all_courses
 
@@ -386,12 +412,10 @@ def api_get_courses():
         start_idx = (page - 1) * items_per_page
         paginated = filtered[start_idx:start_idx + items_per_page]
 
-        # Extract unique year prefixes (UE20, UE21, etc.) from subjectCode
         year_prefixes = set()
         for c in all_courses:
             code = safe_str(c.get('subjectCode'))
-            if len(code) >= 4 and code[:4].startswith('UE') or (len(code) >= 2 and code[:2].isdigit()):
-                # Handle both "UE23CS101" and "14CS201" style codes
+            if (len(code) >= 4 and code[:4].startswith('UE')) or (len(code) >= 2 and code[:2].isdigit()):
                 prefix = code[:4] if code[:2].upper() == 'UE' else code[:2]
                 if prefix:
                     year_prefixes.add(prefix)
@@ -940,4 +964,5 @@ def perform_download(course_id, selected_classes, selected_resource_ids):
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
+
 
