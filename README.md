@@ -75,20 +75,6 @@ A Python-based application to download, merge, and manage course materials from 
 | **Word Documents** | python-docx | ≥ 0.8.11 |
 | **COM Support** | comtypes | ≥ 1.1.11 |
 
-### Voice & Audio
-| Component | Library | Version |
-|-----------|---------|---------|
-| **Speech Recognition** | SpeechRecognition | ≥ 3.8.1 |
-| **Text-to-Speech** | pyttsx3 | ≥ 2.90 |
-| **Audio Input** | PyAudio | ≥ 0.2.11 |
-
-### Utilities
-| Component | Library | Version |
-|-----------|---------|---------|
-| **Environment Config** | python-dotenv | ≥ 1.0.0 |
-| **Terminal Colors** | colorama | ≥ 0.4.6 |
-| **Windows Compatibility** | windows-curses | ≥ 2.3.0 |
-
 ---
 
 ## 📦 Prerequisites
