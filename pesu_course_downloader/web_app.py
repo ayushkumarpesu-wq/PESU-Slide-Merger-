@@ -95,8 +95,46 @@ def load_courses_data():
         except Exception as e:
             print(f"[ERROR] courses.json: {e}")
 
+    # Vercel fallback: courses.json may be absent due repo/.gitignore layout.
+    # If local file has no data, fetch live course list from authenticated PESU session.
+    if not courses:
+        courses = fetch_courses_from_pesu()
+
     _COURSES_CACHE = courses
     return courses
+
+def fetch_courses_from_pesu():
+    """Fetch courses live from PESU when local courses.json is unavailable."""
+    try:
+        session = get_session()
+        response = session.get(f"{BASE_URL}/a/g/getSubjectsCode", timeout=20, allow_redirects=True)
+        content_type = (response.headers.get("Content-Type", "") or "").lower()
+
+        # If login/session is missing, avoid returning auth HTML as course data.
+        if is_auth_page(response.text, response.url):
+            print("[WARN] Cannot fetch live courses: session not authenticated")
+            return []
+
+        payload = response.json() if "json" in content_type else None
+        if not isinstance(payload, list):
+            print("[WARN] Live courses response is not a list")
+            return []
+
+        normalized = []
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            normalized.append({
+                "id": safe_str(item.get("id")),
+                "subjectCode": safe_str(item.get("subjectCode") or item.get("code")),
+                "subjectName": safe_str(item.get("subjectName") or item.get("name")),
+            })
+
+        print(f"[OK] Loaded {len(normalized)} courses from live PESU API")
+        return normalized
+    except Exception as e:
+        print(f"[WARN] Live courses fetch failed: {e}")
+        return []
 
 def safe_str(value):
     if value is None:
